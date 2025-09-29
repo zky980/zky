@@ -1,0 +1,276 @@
+#define _CRT_SECURE_NO_WARNINGS
+#define _CRT_NON_CONFORMING_SWPRINTS  
+#include<stdio.h>
+#include<string.h>
+#include<time.h>
+#include<windows.h>
+#include<wchar.h>
+
+
+struct Bill {
+    char date[20];     
+    float amount;       
+    char type[20];      
+    char account[30];   
+    char note[100];     
+};
+
+
+struct Budget {
+    char type[20];       
+    float monthly_limit; 
+    float used;         
+};
+
+void menu();                
+void addBill();           
+void setBudget();           
+void checkOverspend(char* type, int month); 
+void queryBySingleDate();    
+void queryByAccount();       
+int getCurrentMonth();      
+
+int main() {
+    int choice;
+    while (1) {
+        menu(); 
+        printf("请输入操作编号：");
+        scanf_s("%d", &choice, 4); 
+        int ch = getchar(); 
+
+        
+        switch (choice) {
+        case 1: addBill(); break;         
+        case 2: setBudget(); break;      
+        case 3: queryBySingleDate(); break;
+        case 4: queryByAccount(); break;   
+        case 0: 
+            printf("退出系统成功！\n");
+            return 0;
+        default: 
+            printf("输入错误，请重新选择！\n");
+        }
+        system("pause"); 
+        system("cls");   
+    }
+}
+
+
+void menu() {
+    printf("================ 家庭收支记账与预算系统 ================\n");
+    printf("1. 新增收支记录\n");
+    printf("2. 设置月度预算\n");
+    printf("3. 按日期范围查询收支\n");
+    printf("4. 按账户查询余额\n");
+    printf("0. 退出系统\n"); 
+    printf("========================================================\n");
+}
+
+void addBill() {
+    struct Bill bill;
+    struct Budget budget;
+    FILE* fp_bill, * fp_budget;
+    int currentMonth = getCurrentMonth(); 
+
+    printf("请输入收支日期（格式：2024-10-05）：");
+    scanf_s("%s", bill.date, 20); 
+    printf("请输入金额（正数=收入，负数=支出）：");
+    scanf_s("%f", &bill.amount, 4); 
+    printf("请输入类别（如工资/买菜/房贷）：");
+    scanf_s("%s", bill.type, 20); 
+    printf("请输入支付账户（如微信零钱/银行卡A）：");
+    scanf_s("%s", bill.account, 30); 
+    printf("请输入备注（可选）：");
+    int ch = getchar(); 
+    fgets(bill.note, 100, stdin); 
+    bill.note[strcspn(bill.note, "\n")] = '\0'; 
+
+    fp_bill = fopen("bill.dat", "ab");
+    if (fp_bill == NULL) {
+        printf("收支文件打开失败！\n");
+        return;
+    }
+    fwrite(&bill, sizeof(struct Bill), 1, fp_bill); 
+    fclose(fp_bill);
+    printf("收支记录添加成功！\n");
+
+
+    if (bill.amount < 0) {
+        float spend = -bill.amount; 
+        int isFound = 0; 
+
+        fp_budget = fopen("budget.dat", "rb+");
+        if (fp_budget == NULL) {
+            printf("未找到预算文件，请先设置月度预算！\n");
+            return;
+        }
+
+      
+        while (fread(&budget, sizeof(struct Budget), 1, fp_budget) == 1) {
+            if (strcmp(budget.type, bill.type) == 0) {
+                budget.used += spend; 
+              
+                fseek(fp_budget, -(int)sizeof(struct Budget), SEEK_CUR);
+                fwrite(&budget, sizeof(struct Budget), 1, fp_budget);
+                isFound = 1; 
+                break;
+            }
+        }
+        fclose(fp_budget);
+
+        if (isFound) {
+            checkOverspend(bill.type, currentMonth);
+        }
+        else {
+            printf("未为【%s】类别设置预算，无法检查超支！\n", bill.type);
+        }
+    }
+}
+
+
+void setBudget() {
+    struct Budget budget;
+    FILE* fp = fopen("budget.dat", "rb+"); 
+    char type[20]; 
+    int isUpdate = 0; 
+
+   
+    printf("请输入预算类别（如买菜/房贷/餐饮）：");
+    scanf_s("%s", budget.type, 20);
+    printf("请输入该类别的月度预算上限（元）：");
+    scanf_s("%f", &budget.monthly_limit, 4);
+    budget.used = 0; 
+
+   
+    if (fp != NULL) {
+        while (fread(&type, sizeof(type), 1, fp) == 1) {
+            if (strcmp(type, budget.type) == 0) {
+                
+                fseek(fp, -(int)sizeof(type), SEEK_CUR);
+                fwrite(&budget.type, sizeof(type), 1, fp); 
+                fwrite(&budget.monthly_limit, sizeof(float), 1, fp); 
+                printf("【%s】类别预算更新成功！\n", budget.type);
+                break;
+            }
+           
+            fseek(fp, sizeof(float) + sizeof(float), SEEK_CUR);
+        }
+        fclose(fp);
+    }
+
+    
+    if (!isUpdate) {
+        fp = fopen("budget.dat", "ab"); 
+        if (fp == NULL) {
+            printf("预算文件打开失败！\n");
+            return;
+        }
+        fwrite(&budget, sizeof(struct Budget), 1, fp); 
+        fclose(fp);
+        printf("【%s】类别预算设置成功！\n", budget.type);
+    }
+}
+
+
+void checkOverspend(char* type, int month) {
+    struct Budget budget;
+    FILE* fp = fopen("budget.dat", "rb"); 
+    if (fp == NULL) return; 
+
+   
+    while (fread(&budget, sizeof(struct Budget), 1, fp) == 1) {
+        if (strcmp(budget.type, type) == 0) {
+         
+            if (budget.used > budget.monthly_limit) {
+                float overAmount = budget.used - budget.monthly_limit;
+                wchar_t msg[100]; 
+               
+                swprintf(msg, 100, L"超支预警！\n【%s】类别当月已超支%.2f元\n预算上限：%.2f元\n已用金额：%.2f元",
+                    type, overAmount, budget.monthly_limit, budget.used);
+                
+                MessageBox(NULL, msg, L"超支提醒", MB_ICONWARNING);
+                
+                printf("⚠️  【%s】类别当月已超支%.2f元！\n", type, overAmount);
+            }
+            break; 
+        }
+    }
+    fclose(fp);
+}
+
+void queryBySingleDate() {
+    struct Bill bill;
+    FILE* fp = fopen("bill.dat", "rb"); 
+    char targetDate[20]; 
+    int count = 0; 
+
+   
+    if (fp == NULL) {
+        printf("暂无收支记录！\n");
+        return;
+    }
+
+  
+    printf("请输入要查询的日期（格式：2024-10-05）：");
+    scanf_s("%s", targetDate, 20);
+
+
+    printf("\n===== %s 收支记录 =====\n", targetDate);
+    printf("序号 | 日期       | 金额（元） | 类别   | 账户       | 备注\n");
+    printf("--------------------------------------------------------\n");
+
+
+    while (fread(&bill, sizeof(struct Bill), 1, fp) == 1) {
+        if (strcmp(bill.date, targetDate) == 0) { 
+            count++;
+          
+            printf("%2d   | %s | %8.2f | %s    | %s | %s\n",
+                count, bill.date, bill.amount, bill.type, bill.account, bill.note);
+        }
+    }
+
+    fclose(fp);
+    if (count == 0) {
+        printf("该日期无收支记录！\n");
+    }
+}
+
+void queryByAccount() {
+    struct Bill bill;
+    FILE* fp = fopen("bill.dat", "rb"); 
+    char targetAccount[30]; 
+    float totalIncome = 0, totalSpend = 0, balance = 0; 
+
+  
+    if (fp == NULL) {
+        printf("暂无收支记录！\n");
+        return;
+    }
+
+    printf("请输入要查询的账户（如微信零钱/银行卡A）：");
+    scanf_s("%s", targetAccount, 30);
+    while (fread(&bill, sizeof(struct Bill), 1, fp) == 1) {
+        if (strcmp(bill.account, targetAccount) == 0) { 
+            if (bill.amount > 0) {
+                totalIncome += bill.amount;
+            }
+            else {
+                totalSpend += -bill.amount; 
+            }
+        }
+    }
+
+    fclose(fp);
+    balance = totalIncome - totalSpend;
+    printf("\n===== 【%s】账户汇总 =====\n", targetAccount);
+    printf("总收入：%.2f 元\n", totalIncome);
+    printf("总支出：%.2f 元\n", totalSpend);
+    printf("账户余额：%.2f 元\n", balance);
+}
+
+
+int getCurrentMonth() {
+    time_t now = time(NULL); 
+    struct tm* t = localtime(&now); 
+    return t->tm_mon + 1;
+}
